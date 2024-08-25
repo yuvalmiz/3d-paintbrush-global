@@ -29,6 +29,7 @@ class GuidanceConfig:
     anneal_t: bool = False
     batched_sd: bool = False
     third_loss: bool = True
+    global_stylization: bool = False
 
 @dataclass
 class TextureConfig:
@@ -98,6 +99,7 @@ class OptimizationConfig:
     optimizer: str = "adam"
     batch_size: int = 4
     seed: int = 0
+    current_epoch: int = 0
 
 @dataclass
 class NetworkConfig:

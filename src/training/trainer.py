@@ -36,10 +36,11 @@ class Trainer:
         mesh_path = os.path.join(self.cfg.log.exp_dir, "meshes")
         Path(mesh_path).mkdir(parents=True, exist_ok=True)
 
+
         # Get device
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.epoch = 0
+        self.epoch = cfg.optim.current_epoch
         self.init_logger()
         self.mesh_model = self.init_mesh()
         self.diffusion = self.init_diffusion()
@@ -63,11 +64,12 @@ class Trainer:
         self.background_losses = []
 
         # Highlighter colors
-        full_colors = [self.cfg.texture.primary_col, self.cfg.texture.secondary_col]
-        self.colors = torch.tensor(full_colors).to(self.device)
-        c1, c2 = self.colors[0], self.colors[1]
-        self.c1 = c1.unsqueeze(0).repeat(1, self.mesh_model.texture_resolution, self.mesh_model.texture_resolution, 1).permute(0, 3, 1, 2)
-        self.c2 = c2.unsqueeze(0).repeat(1, self.mesh_model.texture_resolution, self.mesh_model.texture_resolution, 1).permute(0, 3, 1, 2)
+        if not self.cfg.guidance.global_stylization:
+            full_colors = [self.cfg.texture.primary_col, self.cfg.texture.secondary_col]
+            self.colors = torch.tensor(full_colors).to(self.device)
+            c1, c2 = self.colors[0], self.colors[1]
+            self.c1 = c1.unsqueeze(0).repeat(1, self.mesh_model.texture_resolution, self.mesh_model.texture_resolution, 1).permute(0, 3, 1, 2)
+            self.c2 = c2.unsqueeze(0).repeat(1, self.mesh_model.texture_resolution, self.mesh_model.texture_resolution, 1).permute(0, 3, 1, 2)
 
         # Initialize visualization
         self.cfg.render.viz_elev = torch.deg2rad(torch.Tensor(self.cfg.render.viz_elev).to(self.device) + self.cfg.render.init_elev)
@@ -76,12 +78,18 @@ class Trainer:
         self.cfg.render.viz_lights = torch.Tensor(self.cfg.render.viz_lights).to(self.device)
 
     def init_mesh(self):
-        return MeshModel(
+        mesh_model = MeshModel(
             self.cfg,
             render_grid_size=self.cfg.render.render_size,
             texture_resolution=self.cfg.texture.texture_resolution,
             device=self.device,
         ).to(self.device)
+        if self.cfg.optim.current_epoch:
+            model_path = self.cfg.log.model_path
+            if model_path is None:
+                model_path = self.cfg.log.exp_dir + "/model.pth"
+            load_model(mesh_model, model_path, strict=False)
+        return mesh_model
 
     def init_diffusion(self):
         diffusion = CSD()
@@ -170,14 +178,15 @@ class Trainer:
                 preds = self.mesh_model(network_input)
 
                 # Localization branch
-                pred_probs = preds['pred_prob']
-                self.mesh_model.texture_prob = bake_surface_features(
-                    pred_probs,
-                    texel_indices,
-                    self.mesh_model.texture_prob.clone().detach(),
-                    anti_aliasing=self.cfg.texture.bake_anti_aliasing,
-                )
-                probs = self.mesh_model.texture_prob.transpose(0, 1).flip(0).repeat(1, 3, 1, 1)
+                if not self.cfg.guidance.global_stylization:
+                    pred_probs = preds['pred_prob']
+                    self.mesh_model.texture_prob = bake_surface_features(
+                        pred_probs,
+                        texel_indices,
+                        self.mesh_model.texture_prob.clone().detach(),
+                        anti_aliasing=self.cfg.texture.bake_anti_aliasing,
+                    )
+                    probs = self.mesh_model.texture_prob.transpose(0, 1).flip(0).repeat(1, 3, 1, 1)
 
                 # Texture branch
                 pred_rgbs = preds['pred_rgb']
@@ -211,9 +220,17 @@ class Trainer:
                     background_img = texture_img.clone()
 
                 # Perform masks with the predicted localization
-                self.mesh_model.binary_texture_img = probs * self.c1 + (1 - probs) * self.c2
-                self.mesh_model.masked_texture_img = probs * texture_img + (1 - probs) * self.c2
-                self.mesh_model.masked_background_texture_img = probs * self.c1 + (1 - probs) * background_img
+                ### our code ###
+                if self.cfg.guidance.global_stylization:
+                    self.mesh_model.masked_texture_img = texture_img # TODO should put only texture_img                
+                    self.mesh_model.binary_texture_img = self.mesh_model.masked_texture_img
+                    self.mesh_model.masked_background_texture_img = self.mesh_model.masked_texture_img
+
+                ### our code ###
+                else:
+                    self.mesh_model.binary_texture_img = probs * self.c1 + (1 - probs) * self.c2
+                    self.mesh_model.masked_texture_img = probs * texture_img + (1 - probs) * self.c2 # TODO should put only texture_img
+                    self.mesh_model.masked_background_texture_img = probs * self.c1 + (1 - probs) * background_img
 
                 # View info
                 elev = data['elev']
@@ -251,12 +268,15 @@ class Trainer:
                     loss = loss * 3
                 else:
                     prob_sds = self.diffusion(pred_prob_rgb, text_z, text_z_neg)
-                    style_sds = self.diffusion(pred_style_rgb, style_text_z, style_text_z_neg)
-                    loss = prob_sds['loss'] + style_sds['loss']
+                    style_sds = self.diffusion(pred_style_rgb, style_text_z, style_text_z_neg)                                                        
+                    loss = prob_sds['loss'] + style_sds['loss'] # TODO delete style loss
                     if self.cfg.guidance.third_loss:
                         background_sds = self.diffusion(pred_background_rgb, background_text_z, background_text_z_neg)
                         loss += background_sds['loss']
-
+                    ### our code ##
+                    if self.cfg.guidance.global_stylization:
+                        loss = style_sds['loss']                
+                    ### our code ##
                     if self.cfg.guidance.cascaded:
                         stage_I_loss = loss.clone()
                         prob_sds_II = self.diffusion_II(pred_prob_rgb, text_z, text_z_neg)
@@ -265,6 +285,10 @@ class Trainer:
                         if self.cfg.guidance.third_loss:
                             background_sds_II = self.diffusion_II(pred_background_rgb, background_text_z, background_text_z_neg)
                             stage_II_loss += background_sds_II['loss']
+                        ### our code ###
+                        if self.cfg.guidance.global_stylization:
+                            stage_II_loss = style_sds_II['loss']
+                        ### our code ###
                         loss = stage_I_loss * self.cfg.guidance.stage_I_weight + stage_II_loss * self.cfg.guidance.stage_II_weight
 
                 # Backpropagate and update weights

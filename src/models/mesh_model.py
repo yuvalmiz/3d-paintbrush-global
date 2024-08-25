@@ -39,7 +39,8 @@ class MeshModel(nn.Module):
         if self.cfg.network.background_mlp:
             self.bg_nsf = self.init_neural_style_field()
         self.texture_prob = torch.zeros(self.texture_resolution, self.texture_resolution).to(self.device)
-        self.neural_highlighter = self.init_neural_highlighter()
+        if not self.cfg.guidance.global_stylization:
+            self.neural_highlighter = self.init_neural_highlighter()
 
         # Initialize texture map
         self.surface_points, self.texel_indices = self.init_texture_map()
@@ -148,8 +149,9 @@ class MeshModel(nn.Module):
     def forward(self, x):
         return_dict = {
             "pred_rgb": self.neural_style_field(x),
-            "pred_prob": self.neural_highlighter(x)[:, 0]
         }
+        if not self.cfg.guidance.global_stylization:
+            return_dict["pred_prob"] = self.neural_highlighter(x)[:, 0]
         if self.cfg.network.background_mlp:
             return_dict["pred_rgb_bg"] = self.bg_nsf(x)
         return return_dict
@@ -158,7 +160,8 @@ class MeshModel(nn.Module):
         params = [*self.neural_style_field.parameters()]
         if self.cfg.network.background_mlp:
             params += [*self.bg_nsf.parameters()]
-        params += [*self.neural_highlighter.parameters()]
+        if not self.cfg.guidance.global_stylization:
+            params += [*self.neural_highlighter.parameters()]
         return params
 
     # adapted from https://github.com/eladrich/latent-nerf
