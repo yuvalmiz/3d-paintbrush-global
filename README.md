@@ -1,4 +1,4 @@
-# 🎨🖌️ 3D Paintbrush [CVPR 2024]
+# 🎨🖌️ 3D Paintbrush [CVPR 2024] with addition globalized painting
 
 *[Dale Decatur](https://ddecatur.github.io/), [Itai Lang](https://itailang.github.io/), [Kfir Aberman](https://kfiraberman.github.io/), [Rana Hanocka](https://people.cs.uchicago.edu/~ranahanocka/)*
 
@@ -7,22 +7,14 @@
 
 <!-- [[Project Page](https://threedle.github.io/3d-paintbrush/)] [[ArXiv](https://arxiv.org/abs/2311.09571)] -->
 
-![](https://github.com/threedle/3d-paintbrush/raw/docs/docs/spot/gold_chain_necklace.gif)![](https://github.com/threedle/3d-paintbrush/raw/docs/docs/spot/heart-shaped_sunglasses.gif)![](https://github.com/threedle/3d-paintbrush/raw/docs/docs/spot/colorful_crochet_hat.gif)
 
 ### Abstract
-*In this work we develop 3D Paintbrush, a technique for automatically texturing local semantic regions on meshes via text descriptions.
-Our method is designed to operate directly on meshes, producing texture maps which seamlessly integrate into standard graphics pipelines.
-We opt to simultaneously produce a localization map (to specify the edit region) and a texture map which conforms to it.
-This synergistic approach improves the quality of both the localization and the stylization.
-To enhance the details and resolution of the textured area, we leverage multiple stages of a cascaded diffusion model to supervise our local editing technique with generative priors learned from images at different resolutions.
-Our technique, referred to as Cascaded Score Distillation (CSD), simultaneously distills scores at multiple resolutions in a cascaded fashion, enabling control over both the granularity and global understanding of the supervision.
-We demonstrate the effectiveness of 3D Paintbrush to locally texture a variety of shapes within different semantic regions.*
+*In this work we add a globalized painting and envaluate 3D-Paintbrush, a technique for automatically texturing local semantic regions on meshes via text descriptions.
 
-## CSD Demo Notebook
-To see a demo of the Cascaded Score Distillation (CSD) loss, check out this [notebook](src/csd_demo.ipynb) applying CSD to image generation and image editing. CSD enables us to supervise our optimization with multiple cascaded stages of the diffusion model instead of just the base stage used in standard SDS. We distill scores across multiple stages of a cascaded diffusion model simultaneously in order to leverage both the global awareness of the first stage and the higher level of detail contained in later stages.
-<p align="left">
-  <img src="https://github.com/threedle/3d-paintbrush/raw/site/static/images/figures/super-res-csd.png" width="500px"/>
-</p>
+3d-paintbrush technique, referred to as Cascaded Score Distillation (CSD), simultaneously distills scores at multiple resolutions in a cascaded fashion, enabling control over both the granularity and global understanding of the supervision.
+
+By addapting this project to global painting we are able to evaluate the upsides and downsides of using this techniqhe.
+
 
 ## Getting Started
 ### Requirements
@@ -62,7 +54,7 @@ login()
 ```
 and enter your [Hugging Face Hub access token](https://huggingface.co/docs/hub/security-tokens#what-are-user-access-tokens).
 
-## Reproduce paper results
+## Reproduce paper results and globalized results
 ### (Optional) From Pre-trained
 To use our pre-trained models download both the `trained_models` and `inverse_map_cache` folders from [here](https://drive.google.com/drive/folders/1kEHMtwgIGzv94Xbb8J-UaAdQ-an7drkd?usp=sharing) and add them under the data folder to create the following directory structure:
 ```
@@ -163,6 +155,27 @@ To run your own examples you can create your own config files and pass those as 
 ```
 python src/main.py --log.exp_dir results/hand/fancy_gold_watch --mesh.path ./data/spot.obj --guidance.object_name "hand" --guidance.style "fancy gold" --guidance.edit "watch"
 ```
+
+## Run globalized painting
+### For runing with sds meaning the use of one stage of diffusion:
+```
+python src/main.py --log.exp_dir results/car/gen_nascar_1stage --mesh.path ./data/nascar.obj --guidance.object_name "nascar" --guidance.style_prompt "3d render of a next gen nascar" --guidance.global_stylization True --network.background_mlp False --guidance.cascaded False
+```
+
+<p align="left">
+  <img src="https://github.com/user-attachments/assets/39519a87-306e-4da5-a04a-142962d1ac7a" width="133px"/>
+</p>
+
+### For runing with csd meaning two stages of diffusion:
+
+```
+python src/main.py --log.exp_dir results/car/gen_nascar --mesh.path ./data/nascar.obj --guidance.object_name "nascar" --guidance.style_prompt "3d render of a next gen nascar" --guidance.global_stylization True --network.background_mlp False
+```
+
+<p align="left">
+  <img src="https://github.com/user-attachments/assets/2b9583cc-7985-4325-8c2e-6214b9f0e0d1" width="133px"/>
+</p>
+
 
 ## Memory Optimization
 If you do not have access to a 48 GB GPU, you can...
